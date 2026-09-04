@@ -50,6 +50,7 @@ class Grid:
     rows: list[list[Optional[Cell]]]
     title: Optional[str] = None
     table_index: int = 0
+    physical: bool = False  # True: rows[i][c] 가 물리 열 c (덮인 위치는 None). False: HTML <tr> 방식(시작 셀만 나열)
 
 
 @dataclass
@@ -124,8 +125,10 @@ _KEY_RE = re.compile(
 )
 _CAPTION_RE = re.compile(r"신\s*[·ㆍ・]?\s*구\s*조문|대비표|신\s*구\s*대조")
 
-_CURRENT_RE = re.compile(r"^현행$|^현행\(?[^)]*\)?$")
-_REVISED_RE = re.compile(r"^(개정|개정안|개정\(안\)|개정후|개선안|신설|변경|변경안|개정내용)$|^개정")
+_CURRENT_RE = re.compile(r"^(현행|현행\(?[^)]*\)?|당초|종전|기존|현행규정|현행조문)$")
+_REVISED_RE = re.compile(
+    r"^(개정|개정안|개정\(안\)|개정후|개선안|신설|변경|변경안|개정내용|정비|정비\(안\)|정비안|수정|수정안|수정\(안\)|제정안|개정조문)$|^개정"
+)
 _NOTE_RE = re.compile(r"^(비고|사유|개정사유|변경사유|비\s*고)$")
 _KEYCOL_RE = re.compile(r"^(구분|조문|항목|구\s*분)$")
 
@@ -140,13 +143,29 @@ def _first_line(text: str) -> str:
 
 # ----------------------------------------------------------------------------- 격자 → 물리 좌표
 
-_CONT = object()  # rowspan/colspan 으로 덮인 위치 표식
+_CONT = object()  # rowspan 으로 덮인 위치(아래 행) 표식 — 논리 행 병합 대상
+_CONT_COL = object()  # 같은 행에서 colspan 으로 덮인 위치 표식
 
 
 def _layout(grid: Grid) -> list[list[Any]]:
-    """HTML 표 배치 규칙으로 각 행의 물리 열 위치를 계산한다.
-    반환: rows × cols 행렬. 원소는 Cell(시작 위치) 또는 _CONT(덮인 위치) 또는 None."""
+    """각 행의 물리 열 위치를 계산한다.
+    반환: rows × cols 행렬. 원소는 Cell(시작 위치), _CONT(rowspan 으로 덮임), _CONT_COL(colspan 으로 덮임) 또는 None."""
     occupied: dict[tuple[int, int], Any] = {}
+    if grid.physical:
+        for r, row in enumerate(grid.rows):
+            for c, cell in enumerate(row):
+                if cell is None:
+                    continue
+                occupied[(r, c)] = cell
+                for dr in range(cell.rowspan):
+                    for dc in range(cell.colspan):
+                        if dr == 0 and dc == 0:
+                            continue
+                        occupied.setdefault((r + dr, c + dc), _CONT if dr > 0 else _CONT_COL)
+        n_rows = len(grid.rows)
+        n_cols = max([len(row) for row in grid.rows] + [c + 1 for (_, c) in occupied] + [0])
+        return [[occupied.get((r, c)) for c in range(n_cols)] for r in range(n_rows)]
+
     n_rows = len(grid.rows)
     for r, row in enumerate(grid.rows):
         c = 0
@@ -164,7 +183,7 @@ def _layout(grid: Grid) -> list[list[Any]]:
                 for dc in range(cell.colspan):
                     if dr == 0 and dc == 0:
                         continue
-                    occupied.setdefault((r + dr, c + dc), _CONT)
+                    occupied.setdefault((r + dr, c + dc), _CONT if dr > 0 else _CONT_COL)
             c += cell.colspan
     n_cols = max((c for (_, c) in occupied), default=-1) + 1
     n_rows = max(n_rows, max((r for (r, _) in occupied), default=-1) + 1)
@@ -197,9 +216,9 @@ def _detect_columns(layout: list[list[Any]], title: Optional[str]) -> tuple[Opti
                             col_labels[c + dc].append(_norm(x.text))
         for c, labels in enumerate(col_labels):
             joined = "".join(labels)
-            if any(_CURRENT_RE.match(lbl) for lbl in labels) or joined.startswith("현행"):
+            if any(_CURRENT_RE.match(lbl) for lbl in labels) or joined.startswith(("현행", "당초", "종전")):
                 current.append(c)
-            elif any(_REVISED_RE.match(lbl) for lbl in labels) or joined.startswith("개정"):
+            elif any(_REVISED_RE.match(lbl) for lbl in labels) or joined.startswith(("개정", "정비")):
                 revised.append(c)
             elif any(_NOTE_RE.match(lbl) for lbl in labels):
                 note.append(c)
@@ -226,6 +245,8 @@ def _is_subheader(row: list[Any], current: list[int], revised: list[int]) -> boo
         out = []
         for c in cols:
             x = row[c] if c < len(row) else None
+            if x is _CONT_COL:
+                continue
             if not isinstance(x, Cell):
                 return []
             t = _norm(x.text)
@@ -411,6 +432,54 @@ def _is_same_marker(current: str, revised: str) -> bool:
     return prefix == "" or prefix in _norm(current or "")
 
 
+_BLOCK_KEY_RE = re.compile(
+    r"^\s*(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*\([^)]*\))?|\[\s*별표\s*\d*\s*\]|별표\s*\d+)", re.M
+)
+
+
+def _split_blocks(text: str) -> list[tuple[str, str]]:
+    """셀 텍스트를 조문(제N조/별표) 단위 블록으로 나눈다. 반환: [(정규화 키, 블록 텍스트)]."""
+    starts = [m.start() for m in _BLOCK_KEY_RE.finditer(text or "")]
+    if len(starts) < 2:
+        return []
+    blocks = []
+    for i, st in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(text)
+        chunk = text[st:end].strip()
+        key = _BLOCK_KEY_RE.match(chunk)
+        blocks.append((_norm(key.group(1)) if key else "", chunk))
+    return blocks
+
+
+def _expand_block_rows(lr: dict[str, str]) -> list[dict[str, str]]:
+    """현행·개정안 셀 각각에 조문이 2개 이상 들어 있으면 조문 키로 정렬해 여러 논리 행으로 쪼갠다."""
+    cur_blocks, rev_blocks = _split_blocks(lr["current"]), _split_blocks(lr["revised"])
+    if len(cur_blocks) < 2 or len(rev_blocks) < 2:
+        return [lr]
+    cur_keys = [k for k, _ in cur_blocks]
+    rev_keys = [k for k, _ in rev_blocks]
+    out: list[dict[str, str]] = []
+    matcher = SequenceMatcher(None, cur_keys, rev_keys, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                out.append({"current": cur_blocks[i1 + k][1], "revised": rev_blocks[j1 + k][1], "note": "", "key": ""})
+        else:
+            n = max(i2 - i1, j2 - j1)
+            for k in range(n):
+                out.append(
+                    {
+                        "current": cur_blocks[i1 + k][1] if i1 + k < i2 else "",
+                        "revised": rev_blocks[j1 + k][1] if j1 + k < j2 else "",
+                        "note": "",
+                        "key": "",
+                    }
+                )
+    if out:
+        out[0]["note"] = lr.get("note", "")
+    return out
+
+
 def extract_from_grids(grids: Iterable[Grid]) -> list[SynTable]:
     tables: list[SynTable] = []
     for grid in grids:
@@ -423,7 +492,8 @@ def extract_from_grids(grids: Iterable[Grid]) -> list[SynTable]:
         if cols is None:
             continue
         rows: list[SynRow] = []
-        for i, lr in enumerate(_logical_rows(layout, body_start, cols)):
+        logical = [x for lr in _logical_rows(layout, body_start, cols) for x in _expand_block_rows(lr)]
+        for i, lr in enumerate(logical):
             cur, rev = lr["current"], lr["revised"]
             key = _extract_key(lr)
             if _is_same_marker(cur, rev):
@@ -491,7 +561,7 @@ def grids_from_doc(doc: Any) -> list[Grid]:
                         )
                     )
                 rows.append(out_row)
-            grids.append(Grid(rows=rows, title=title, table_index=index))
+            grids.append(Grid(rows=rows, title=title, table_index=index, physical=True))
             index += 1
         if txt:
             recent.append(txt)

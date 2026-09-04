@@ -193,3 +193,46 @@ def test_extract_from_real_hwpx():
 
     assert tables, "대비표를 찾지 못함"
     assert any(r.changed for t in tables for r in t.rows)
+
+
+# ------------------------------------------------------------------ 물리 격자 / 블록 분할
+def test_physical_grid_with_colspan_headers():
+    rows = [
+        [Cell("현행", colspan=2), None, Cell("개정안", colspan=2), None, Cell("비고", rowspan=2)],
+        [Cell("항목"), Cell("세부인정사항"), Cell("항목"), Cell("세부인정사항"), None],
+        [Cell("가-1"), Cell("30일 이내"), Cell("가-1"), Cell("60일 이내"), Cell("연장")],
+    ]
+    t = extract_from_grids([Grid(rows=rows, physical=True)])[0]
+
+    assert t.columns.current == [0, 1] and t.columns.revised == [2, 3] and t.columns.note == [4]
+    assert t.rows[0].current == "가-1\n30일 이내" and t.rows[0].note == "연장"
+
+
+def test_colspan_in_body_rows_does_not_merge_rows():
+    rows = [
+        [Cell("현행"), Cell("개정안", colspan=2), None],
+        [Cell("제1조 가"), Cell("제1조 나", colspan=2), None],
+        [Cell("제2조 가"), Cell("제2조 나", colspan=2), None],
+    ]
+    t = extract_from_grids([Grid(rows=rows, physical=True)])[0]
+
+    assert len(t.rows) == 2
+
+
+def test_single_cell_table_is_split_by_article():
+    cur = "제1조(목적) 이 규정은 A를 정한다.\n제2조(정의) 용어는 B이다.\n제3조(적용) C에 적용한다."
+    rev = "제1조(목적) 이 규정은 A를 정한다.\n제2조(정의) 용어는 B'이다.\n제3조(적용) C에 적용한다."
+    t = extract_from_grids([g([["현행", "개정안"], [cur, rev]])])[0]
+
+    assert len(t.rows) == 3
+    assert [r.key for r in t.rows] == ["제1조(목적)", "제2조(정의)", "제3조(적용)"]
+    assert [r.changed for r in t.rows] == [False, True, False]
+
+
+def test_split_handles_new_and_deleted_articles():
+    cur = "제1조 A\n제2조 B"
+    rev = "제1조 A\n제2조의2 신설\n제2조 B"
+    t = extract_from_grids([g([["현행", "개정안"], [cur, rev]])])[0]
+
+    keys = [(r.current[:3], r.revised[:5]) for r in t.rows]
+    assert ("", "제2조의2") in keys

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hwpx-parser-lib"
-version = "0.2.0"
+version = "0.2.1"
 description = "HWPX 구조 파서 — document-processor 에서 파싱 경로만 발라낸 경량 라이브러리 (순수 Python, Java 없음)"
 readme = "README.md"
 license = { text = "MIT" }

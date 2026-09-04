@@ -24,7 +24,7 @@ from typing import BinaryIO
 from .models import DocIR
 from .syn_table import SynTable, extract_syn_tables
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "DocIR",
     "ParseResult",
