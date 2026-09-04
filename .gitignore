@@ -1,0 +1,11 @@
+# macOS AppleDouble (외장 드라이브)
+._*
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
