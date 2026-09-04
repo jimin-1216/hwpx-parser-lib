@@ -31,6 +31,31 @@ for para in doc.paragraphs:
             print([c.text for c in row if c])
 ```
 
+## 신구조문대비표 구조화 (`hwpx_parser.syn_table`)
+
+법령·고시 개정안 첨부의 "현행 | 개정안" 표를 행 단위 구조로 바꾼다.
+
+```python
+from hwpx_parser import parse_ir, extract_syn_tables
+
+for t in extract_syn_tables(parse_ir("개정안.hwpx")):
+    print(t.title, t.header, t.columns.to_dict(), len(t.rows), t.changed_count)
+    for row in t.rows:
+        row.key               # "제3조(…)", "[별표 2]", "가." 등
+        row.current           # 현행 셀 텍스트
+        row.revised           # 개정안 셀 텍스트 (생략 표기 `-----` 포함)
+        row.revised_expanded  # 생략 표기를 현행으로 채운 복원본 (없으면 None)
+        row.restore_complete  # 모든 생략 구간을 복원했는지
+        row.changed           # 어절 diff 상 변경 여부 ("(현행과 같음)" 은 변경 없음)
+        row.diff              # [("equal"|"delete"|"insert", 텍스트), ...]
+    t.to_dict()               # JSON 직렬화용
+```
+
+- 헤더 인식: `현행` / `개정(안)` / `비고·사유` / `구분`. colspan 헤더는 하위 열 전체를 묶고, 하위 헤더 행(항목|세부인정사항)은 자동 포함
+- rowspan 으로 이어지는 행은 앞 행에 합친다
+- 헤더 없는 2열 표는 직전 문단이 "신구조문대비표" 류 캡션일 때만 인정
+- PDF 는 표 구조가 없으므로 대상 아님
+
 ## 원본과의 관계
 
 `src/hwpx_parser/` 아래 `models.py`, `style_types.py`, `io_utils.py`, `logging_config.py`, `builder.py`, `hwpx.py`,

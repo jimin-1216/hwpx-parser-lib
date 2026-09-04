@@ -7,6 +7,7 @@ document-processor(jimin-1216/document-processor)에서 HWPX 파싱 경로만 �
     parse_ir(source)            -> DocIR           문서 구조(IR). 문단·표·셀·병합 정보
     render_compact(doc)         -> (html, text)    저장/후속처리용 압축 HTML(<p>/<table>) 과 표 셀 포함 텍스트
     parse(source)               -> ParseResult     위 두 가지를 한 번에
+    extract_syn_tables(doc)     -> [SynTable]      신구조문대비표 구조화 (hwpx_parser.syn_table)
 
 내부 모듈(models, core/*)은 원본 document-processor 와 파일 단위로 동일하게 유지하여
 원본의 HWPX 파싱 수정을 그대로 가져올 수 있게 한다.
@@ -21,9 +22,19 @@ from pathlib import Path
 from typing import BinaryIO
 
 from .models import DocIR
+from .syn_table import SynTable, extract_syn_tables
 
-__version__ = "0.1.0"
-__all__ = ["DocIR", "ParseResult", "parse", "parse_ir", "render_compact", "__version__"]
+__version__ = "0.2.0"
+__all__ = [
+    "DocIR",
+    "ParseResult",
+    "SynTable",
+    "extract_syn_tables",
+    "parse",
+    "parse_ir",
+    "render_compact",
+    "__version__",
+]
 
 Source = str | PathLike[str] | bytes | BinaryIO
 

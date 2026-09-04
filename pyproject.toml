@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hwpx-parser-lib"
-version = "0.1.0"
+version = "0.2.0"
 description = "HWPX 구조 파서 — document-processor 에서 파싱 경로만 발라낸 경량 라이브러리 (순수 Python, Java 없음)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -25,6 +25,18 @@ packages = ["src/hwpx_parser"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+# document-processor 에서 무수정 복사한 모듈은 검사하지 않는다 (원본과 파일 단위 동기화 유지)
+extend-exclude = [
+    "src/hwpx_parser/models.py",
+    "src/hwpx_parser/style_types.py",
+    "src/hwpx_parser/io_utils.py",
+    "src/hwpx_parser/logging_config.py",
+    "src/hwpx_parser/builder.py",
+    "src/hwpx_parser/hwpx.py",
+    "src/hwpx_parser/core/document_ir_parser.py",
+    "src/hwpx_parser/core/hwpx_structured_exporter.py",
+    "src/hwpx_parser/core/style_extractor.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
